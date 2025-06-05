@@ -2,11 +2,11 @@
 Main application entry point for the Moneyy.ai Trading System.
 """
 import os
+import uvicorn
 from fastapi import FastAPI, Query, HTTPException
 from api.routes import router as api_router
 from config.settings import Settings
 from trading.run_simulation import run_simulation
-from config import DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, API_KEY
 
 # Load settings
 settings = Settings()
@@ -58,14 +58,10 @@ async def simulate_trading(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Example of using environment variables for database connection
-# db_connection = connect_to_db(DB_HOST, DB_USER, DB_PASSWORD, DB_NAME)
-
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     
-    # Update the host to "localhost" instead of "0.0.0.0"
     print(f"\nStarting server - API will be available at http://localhost:{port}")
     print(f"API documentation: http://localhost:{port}/docs")
     print(f"Trading simulation: http://localhost:{port}/simulate?ticker=AAPL")
@@ -73,7 +69,7 @@ if __name__ == "__main__":
     
     uvicorn.run(
         "app:app", 
-        host="localhost",  # Changed from "0.0.0.0" to "localhost"
+        host="localhost",
         port=port, 
         reload=True
     )

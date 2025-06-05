@@ -19,10 +19,11 @@ class Settings(BaseSettings):
     # Database settings
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL", 
-        "postgresql://postgres:postgres@localhost/moneyy_trading"
+        "postgresql://postgres:gunimithu@localhost/moneyy_trading"
     )
     
     # Redis and Celery settings
+    USE_CELERY: bool = os.getenv("USE_CELERY", "False").lower() == "true"
     REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
     REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
     REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))

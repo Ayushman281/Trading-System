@@ -1,78 +1,130 @@
 """
-WebSocket client for connecting to the mock stock data feed.
+Client for connecting to the WebSocket server and processing price updates.
 """
 import asyncio
 import json
 import websockets
+import logging
 from datetime import datetime
-from .price_monitor import PriceMonitor
-from utils.logger import get_logger
+import os
+import sys
 
-logger = get_logger(__name__)
+# Add the project root to the path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+from utils.logger import get_logger
+from realtime.price_monitor import PriceMonitor
+from realtime.data_processor import DataProcessor
+
+logger = get_logger("websocket_client")
 
 class WebSocketClient:
-    def __init__(self, uri="ws://localhost:8765"):
+    """
+    Client for connecting to the WebSocket server and processing price updates.
+    """
+    def __init__(self, uri="ws://localhost:8765", reconnect_interval=5):
         """
         Initialize the WebSocket client.
         
         Args:
             uri: WebSocket server URI
+            reconnect_interval: Seconds to wait before reconnection attempts
         """
         self.uri = uri
-        self.price_monitor = PriceMonitor()
+        self.reconnect_interval = reconnect_interval
         self.connected = False
+        self.price_monitor = PriceMonitor(threshold_percent=2.0)
+        self.data_processor = DataProcessor()
         
+        # Subscribe to specific tickers
+        self.subscriptions = ["AAPL", "MSFT", "AMZN", "GOOGL", "META", "TSLA", "NVDA"]
+    
     async def connect(self):
-        """
-        Connect to the WebSocket server and process incoming messages.
-        """
-        try:
-            async with websockets.connect(self.uri) as websocket:
-                logger.info(f"Connected to {self.uri}")
-                self.connected = True
-                
-                # Send subscription message
-                await websocket.send(json.dumps({
-                    "type": "subscribe",
-                    "symbols": ["AAPL", "MSFT", "AMZN", "GOOGL", "META"]
-                }))
-                
-                # Process incoming messages
-                while True:
-                    message = await websocket.recv()
-                    await self.process_message(json.loads(message))
+        """Connect to the WebSocket server and handle messages."""
+        while True:
+            try:
+                async with websockets.connect(self.uri) as websocket:
+                    self.connected = True
+                    logger.info(f"Connected to {self.uri}")
                     
-        except websockets.ConnectionClosed:
-            logger.warning("WebSocket connection closed")
-            self.connected = False
-        except Exception as e:
-            logger.error(f"WebSocket error: {e}")
-            self.connected = False
-        
-    async def process_message(self, message):
+                    # Send subscription message
+                    if self.subscriptions:
+                        subscription_msg = {
+                            "type": "subscribe",
+                            "tickers": self.subscriptions
+                        }
+                        await websocket.send(json.dumps(subscription_msg))
+                    
+                    # Process incoming messages
+                    await self._process_messages(websocket)
+            except websockets.exceptions.ConnectionClosed:
+                logger.warning("WebSocket connection closed")
+                self.connected = False
+            except Exception as e:
+                logger.error(f"WebSocket error: {e}")
+                self.connected = False
+            
+            # Wait before reconnecting
+            logger.info(f"Attempting to reconnect in {self.reconnect_interval} seconds...")
+            await asyncio.sleep(self.reconnect_interval)
+    
+    async def _process_messages(self, websocket):
         """
         Process incoming WebSocket messages.
         
         Args:
-            message: JSON message from the WebSocket server
+            websocket: WebSocket connection
         """
-        if message.get("type") == "price_update":
-            # Extract price data
-            ticker = message.get("symbol")
-            price = message.get("price")
-            timestamp = datetime.fromisoformat(message.get("timestamp"))
-            
-            # Process price update
-            await self.price_monitor.process_price_update(ticker, price, timestamp)
-            
-        elif message.get("type") == "error":
-            logger.error(f"Error from WebSocket server: {message.get('message')}")
-            
-        else:
-            logger.debug(f"Unhandled message type: {message.get('type')}")
-    
-    def start(self):
-        """
-        Start the WebSocket client in a separate thread.
-        """
-        asyncio.run(self.connect())
+        async for message in websocket:
+            try:
+                data = json.loads(message)
+                
+                # Check message type
+                if data.get("type") == "price_update":
+                    ticker = data.get("ticker")
+                    price = data.get("price")
+                    timestamp_str = data.get("timestamp")
+                    
+                    # Skip invalid messages
+                    if ticker is None or price is None or timestamp_str is None:
+                        logger.warning("Received invalid price update, missing required fields")
+                        continue
+                    
+                    # Parse timestamp
+                    try:
+                        timestamp = datetime.fromisoformat(timestamp_str)
+                    except ValueError:
+                        logger.warning(f"Invalid timestamp format: {timestamp_str}")
+                        timestamp = datetime.now()
+                    
+                    # Log price update
+                    logger.debug(f"Price update: {ticker} ${price:.2f}")
+                    
+                    # Process price update
+                    await self.price_monitor.process_price_update(ticker, price, timestamp)
+                    await self.data_processor.process_price_update(ticker, price, timestamp)
+                    
+                elif data.get("type") == "error":
+                    logger.error(f"Server error: {data.get('message')}")
+                else:
+                    logger.debug(f"Received message: {data}")
+                    
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse message: {message[:100]}...")
+            except Exception as e:
+                logger.error(f"Error processing message: {e}")
+
+async def main():
+    """Main function to run the WebSocket client."""
+    client = WebSocketClient()
+    try:
+        await client.connect()
+    except KeyboardInterrupt:
+        logger.info("Client stopped by user")
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Client stopped by user")
