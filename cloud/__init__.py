@@ -1,0 +1,3 @@
+"""
+Cloud integration module initialization.
+"""

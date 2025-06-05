@@ -1,0 +1,46 @@
+# API Framework
+fastapi==0.95.1
+uvicorn==0.22.0
+pydantic==1.10.7
+
+# Database
+sqlalchemy==2.0.12
+psycopg2-binary==2.9.6
+pymongo==4.3.3
+
+# WebSocket
+websockets==11.0.3
+
+# AWS Integration
+boto3==1.26.129
+aws-lambda-powertools==2.15.0
+
+# Background Tasks
+celery==5.2.7
+redis==4.5.4
+
+# Data Processing
+numpy==1.24.3
+pandas==2.0.1
+scipy==1.10.1
+matplotlib==3.7.1
+seaborn==0.12.2
+
+# Trading & Financial
+yfinance==0.2.18
+ta==0.10.2  
+statsmodels==0.13.5 
+
+# Testing
+pytest==7.3.1
+httpx==0.24.0
+
+# Utilities
+python-dotenv==1.0.0
+python-multipart==0.0.6
+pydantic[email]==1.10.7
+requests==2.30.0
+uuid==1.30
+aiohttp==3.8.4
+pytz==2023.3
+tqdm==4.65.0 
