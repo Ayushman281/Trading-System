@@ -1,18 +1,19 @@
 """
 API routes for trade operations.
 """
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi import APIRouter, Depends, Query, HTTPException, Path, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, date
-import subprocess
+import json
 import sys
-import os
+from unittest import mock
 
 from .schemas import TradeCreate, TradeResponse
 from .models import Trade, TradeSide
 from config.database import get_db_session
 from utils.logger import get_logger
+from cloud.lambda_function import lambda_handler
 
 logger = get_logger(__name__)
 
@@ -173,4 +174,81 @@ async def start_monitoring():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to start monitoring"
+        )
+
+from datetime import date as date_type
+
+# Add endpoint to simulate API Gateway triggering Lambda
+@router.get("/analyze-trades/{date}")
+async def analyze_trades(date: str = Path(..., description="Date in YYYY-MM-DD format")):
+    """
+    Analyze trades for a specific date using AWS Lambda functionality.
+    
+    This endpoint simulates AWS API Gateway triggering a Lambda function.
+    """
+    try:
+        from cloud.lambda_function import lambda_handler
+        from datetime import datetime
+        
+        # Validate date format
+        try:
+            date_obj = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid date format. Use YYYY-MM-DD"
+            )
+        
+        # Import mocking tools
+        from cloud.test_lambda_locally import MockLambdaContext, MockS3Client
+        
+        # Create event object like API Gateway would
+        event = {
+            'pathParameters': {
+                'date': date
+            }
+        }
+        
+        # Create mock S3 client and data
+        mock_s3 = MockS3Client()
+        
+        # Generate mock trade data
+        from cloud.s3_utils import create_mock_trade_data_for_s3
+        mock_trades = create_mock_trade_data_for_s3(date)
+        
+        # Convert to CSV string
+        import io
+        import pandas as pd
+        csv_buffer = io.StringIO()
+        mock_trades.to_csv(csv_buffer, index=False)
+        mock_csv = csv_buffer.getvalue()
+        
+        # Get S3 paths
+        bucket = 'moneyy-trading-data'
+        trade_path = f"{date_obj.year}/{date_obj.month:02d}/{date_obj.day:02d}/trades.csv"
+        
+        # Store mock trade data in our mock S3
+        mock_s3.put_object(Bucket=bucket, Key=trade_path, Body=mock_csv)
+        
+        # Create mock Lambda context
+        mock_context = MockLambdaContext()
+        
+        # Call Lambda handler with mocks
+        with mock.patch('boto3.client', return_value=mock_s3):
+            response = lambda_handler(event, mock_context)
+        
+        # Return response if successful
+        if response['statusCode'] == 200:
+            return json.loads(response['body'])
+        else:
+            raise HTTPException(
+                status_code=response['statusCode'],
+                detail=json.loads(response['body']).get('message', 'Unknown error')
+            )
+    
+    except Exception as e:
+        logger.error(f"Error running trade analysis: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to analyze trades: {str(e)}"
         )
